@@ -30,7 +30,7 @@ struct client_thread
 void create_thread_pool()
 {
     int i = 0;
-    for (i = 0; i < MAX_ACCEPT_THREAD+1; i++)
+    for (i = 0; i < MAX_ACCEPT_THREAD; i++)
     {
         threads[i] = i;
     }
@@ -44,15 +44,16 @@ int get_thread()
         {
             pthread_mutex_lock(&lock);
             thread_sp--;
-            printf("sp=%d,T_no=%d\n", thread_sp, threads[thread_sp]);
             pthread_mutex_unlock(&lock);
             return threads[thread_sp];
         }
+        printf("No_thread\n");
+        sleep(1);
     }
 }
 int release_thread(struct client_thread *ct)
 {
-    if (thread_sp <MAX_ACCEPT_THREAD)
+    if (thread_sp < MAX_ACCEPT_THREAD)
     {
         pthread_mutex_lock(&lock);
         threads[thread_sp++] = ct->thread_number;
@@ -68,11 +69,13 @@ void *handle_client(void *arg)
     struct client_thread *ct = arg;
     int n;
     n = read(ct->cfd, buffer, 1024);
-    sleep((int)(ct->thread_number*0.2));
-    puts(buffer);
+    if (n != 0)
+        handle_err("read");
+    //Create a dummy wait
+    sleep((int)(ct->thread_number * 0.2));
+    //puts(buffer);
     write(ct->cfd, &buffer, strlen(buffer));
     close(ct->cfd);
-    
     release_thread(ct);
     free(ct);
 }
@@ -107,7 +110,6 @@ void *start_listen(void *args)
 
         ct->thread_number = 0;
         ct->thread_number = get_thread();
-        printf("Hi===%d\n",ct->thread_number);
 
         if (pthread_create(&process_thread[ct->thread_number], NULL, handle_client, (void *)ct) != 0)
             handle_err("pthread");

@@ -69,7 +69,7 @@ void *handle_client(void *arg)
     struct client_thread *ct = arg;
     int n;
     n = read(ct->cfd, buffer, 1024);
-    if (n != 0)
+    if (!n)
         handle_err("read");
     //Create a dummy wait
     sleep((int)(ct->thread_number * 0.2));

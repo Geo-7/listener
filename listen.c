@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <signal.h>
 #define handle_err(msg)     \
     do                      \
     {                       \
@@ -12,9 +13,9 @@
         exit(EXIT_FAILURE); \
     } while (0)
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-#define MAX_ACCEPT_THREAD 200
-uint empty_thread_sp = 1;
-int empty_thread[MAX_ACCEPT_THREAD];
+#define MAX_ACCEPT_THREAD 10
+uint thread_sp = MAX_ACCEPT_THREAD;
+int threads[MAX_ACCEPT_THREAD];
 pthread_t *process_thread;
 struct ip_args
 {
@@ -26,66 +27,60 @@ struct client_thread
     unsigned int cfd;
     int thread_number;
 };
-int create_thread_pool()
+void create_thread_pool()
 {
     int i = 0;
-    for (i = 0; i < MAX_ACCEPT_THREAD; i++)
+    for (i = 0; i < MAX_ACCEPT_THREAD+1; i++)
     {
-        empty_thread[i] = i;
+        threads[i] = i;
     }
-    process_thread =malloc(MAX_ACCEPT_THREAD * sizeof *process_thread);
+    process_thread = malloc(MAX_ACCEPT_THREAD * sizeof *process_thread);
 }
 int get_thread()
 {
-
-    if (empty_thread_sp < MAX_ACCEPT_THREAD)
+    while (1)
     {
-        pthread_mutex_lock(&lock);
-        empty_thread_sp++;
-        pthread_mutex_unlock(&lock);
-        return empty_thread[empty_thread_sp];
-    }
-    else
-    {
-        return get_thread();
+        if (thread_sp > 0)
+        {
+            pthread_mutex_lock(&lock);
+            thread_sp--;
+            printf("sp=%d,T_no=%d\n", thread_sp, threads[thread_sp]);
+            pthread_mutex_unlock(&lock);
+            return threads[thread_sp];
+        }
     }
 }
 int release_thread(struct client_thread *ct)
 {
-    if (empty_thread_sp > 0)
+    if (thread_sp <MAX_ACCEPT_THREAD)
     {
         pthread_mutex_lock(&lock);
-        empty_thread[--empty_thread_sp] = ct->thread_number;
+        threads[thread_sp++] = ct->thread_number;
         pthread_mutex_unlock(&lock);
     }
-    else
-    {
-        return 0;
-    }
+    return 0;
 }
 void *handle_client(void *arg)
 {
     pthread_detach(pthread_self());
-    int no;
     char buffer[1024];
-    //TODO is this ok?
-    memset(&buffer,0,sizeof buffer);
+    memset(&buffer, 0, sizeof buffer);
     struct client_thread *ct = arg;
     int n;
     n = read(ct->cfd, buffer, 1024);
-    printf("%s\n", buffer);
+    sleep((int)(ct->thread_number*0.2));
+    puts(buffer);
     write(ct->cfd, &buffer, strlen(buffer));
     close(ct->cfd);
-    release_thread(ct);
-    no = ct->thread_number;
-    free(ct);
     
+    release_thread(ct);
+    free(ct);
 }
 void *start_listen(void *args)
 {
     struct ip_args *listen_addr = args;
     unsigned int sfd;
-    struct client_thread *ct; 
+    struct client_thread *ct;
     struct sockaddr_in my_addr;
     sfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sfd == -1)
@@ -104,7 +99,7 @@ void *start_listen(void *args)
 
     while (1)
     {
-        ct= malloc(sizeof *ct); 
+        ct = malloc(sizeof *ct);
         socklen_t addr_size = sizeof peer_addr;
         ct->cfd = accept(sfd, (struct sockaddr *)&peer_addr, &addr_size);
         if (ct->cfd == 1)
@@ -112,27 +107,36 @@ void *start_listen(void *args)
 
         ct->thread_number = 0;
         ct->thread_number = get_thread();
-
+        printf("Hi===%d\n",ct->thread_number);
 
         if (pthread_create(&process_thread[ct->thread_number], NULL, handle_client, (void *)ct) != 0)
             handle_err("pthread");
+    }
+}
+void dummy_wait()
+{
+    sigset_t myset;
+    (void)sigemptyset(&myset);
+    while (1)
+    {
+        (void)printf("TCPServer is running:\n");
+        (void)sigsuspend(&myset);
     }
 }
 int main()
 {
     create_thread_pool();
     /* 1- socket 2-bind 3-listen 4-accept*/
-    struct ip_args listen_addr1, listen_addr2, control_addr;
-    listen_addr1.ipaddr = INADDR_ANY;
-    listen_addr1.port = 2000;
-    listen_addr2.ipaddr = INADDR_ANY;
-    listen_addr2.port = 3000;
-    control_addr.ipaddr = INADDR_LOOPBACK;
-    control_addr.port = 57000;
     pthread_t listen_thread[3];
-    pthread_create(&listen_thread[0], NULL, start_listen, (void *)&listen_addr1);
-    pthread_create(&listen_thread[1], NULL, start_listen, (void *)&listen_addr2);
-    //pthread_create(&listen_thread[2], NULL, start_listen, (void *)&control_addr);
-    start_listen((void *)&control_addr);
+    struct ip_args listen_addr[2];
+    int ports[3] = {2000, 3000, 57000};
+    int i, ip[3] = {INADDR_ANY, INADDR_ANY, INADDR_LOOPBACK};
+    for (i = 0; i < 3; i++)
+    {
+        listen_addr[i].port = ports[i];
+        listen_addr[i].ipaddr = ip[i];
+        pthread_create(&listen_thread[i], NULL, start_listen, &listen_addr[i]);
+    }
+    dummy_wait();
     return 0;
 }

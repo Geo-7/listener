@@ -67,17 +67,16 @@ void *handle_client(void *arg)
     char buffer[1024];
     memset(&buffer, 0, sizeof buffer);
     struct client_thread *ct = arg;
-    int n;
-    n = read(ct->cfd, buffer, 1024);
-    if (!n)
-        handle_err("read");
-    //Create a dummy wait
-    sleep((int)(ct->thread_number * 0.2));
+    //TODO Fix read failure
+    read(ct->cfd, buffer, 1024);
     //puts(buffer);
     write(ct->cfd, &buffer, strlen(buffer));
     close(ct->cfd);
+    //Create a dummy wait
+    sleep((int)(ct->thread_number * 2));
     release_thread(ct);
     free(ct);
+    return NULL;
 }
 void *start_listen(void *args)
 {
